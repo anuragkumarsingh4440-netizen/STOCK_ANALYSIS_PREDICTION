@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 import datetime as dt
+import google.generativeai as genai
+import re
 
 from pages.utils.plotly_figure import (
     plotly_table,
@@ -19,14 +21,41 @@ st.set_page_config(
     layout="wide",
 )
 
+# ================== GEMINI SETUP ==================
+genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+model = genai.GenerativeModel("gemini-1.5-flash")
+
+@st.cache_data(ttl=3600)
+def get_ticker_from_company(user_input):
+    try:
+        prompt = f"""
+        Convert the following company name into its stock ticker symbol.
+
+        Rules:
+        - Only return ticker (no explanation)
+        - Indian stocks → add .NS
+        - US stocks → normal format
+
+        Company: {user_input}
+        """
+
+        response = model.generate_content(prompt)
+        ticker = response.text.strip().upper()
+
+        # ✅ clean output
+        ticker = re.sub(r"[^A-Z\.]", "", ticker)
+
+        return ticker
+    except:
+        return user_input.upper()
+
 # ================== CACHE (FIXED) ==================
 @st.cache_data(ttl=600)
 def get_stock_info(ticker):
     try:
         stock = yf.Ticker(ticker)
-        info = stock.fast_info
-        return dict(info)   # ✅ FIX SERIALIZATION ERROR
-    except Exception:
+        return dict(stock.fast_info)   # ✅ fix
+    except:
         return {}
 
 @st.cache_data(ttl=600)
@@ -62,22 +91,20 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown(
-    '<div class="title-style">AIML Based Stock Prices Analysis 📈</div>',
-    unsafe_allow_html=True
-)
-
-st.markdown(
-    '<div class="sub-style">Analyze stock performance, trends and insights</div>',
-    unsafe_allow_html=True
-)
+st.markdown('<div class="title-style">AIML Stock Analysis 📈</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-style">AI-powered ticker detection + analysis</div>', unsafe_allow_html=True)
 
 # ================== INPUT ==================
 col1, col2, col3 = st.columns(3)
 today = dt.date.today()
 
 with col1:
-    ticker = st.text_input("Stock Ticker", "TSLA")
+    company_name = st.text_input("Enter Company Name", "Tesla")
+
+# ✅ Convert to ticker using Gemini
+ticker = get_ticker_from_company(company_name)
+
+st.success(f"Detected Ticker: {ticker}")
 
 with col2:
     start_date = st.date_input(
@@ -95,7 +122,7 @@ info = get_stock_info(ticker)
 
 st.subheader(f"{ticker} Company Overview")
 
-st.write("Basic Market Info:")
+st.write("Basic Info:")
 st.write(info)
 
 # ================== METRICS ==================
@@ -143,45 +170,24 @@ st.plotly_chart(
 # ================== TECHNICAL ==================
 st.markdown("## Technical Analysis")
 
-(
-    col1,
-    col2,
-    col3,
-    col4,
-    col5,
-    col6,
-    col7
-) = st.columns(7)
+(col1, col2, col3, col4, col5, col6, col7) = st.columns(7)
 
 num_period = "1mo"
 
 with col1:
-    if st.button("5D"):
-        num_period = "5d"
-
+    if st.button("5D"): num_period = "5d"
 with col2:
-    if st.button("1M"):
-        num_period = "1mo"
-
+    if st.button("1M"): num_period = "1mo"
 with col3:
-    if st.button("6M"):
-        num_period = "6mo"
-
+    if st.button("6M"): num_period = "6mo"
 with col4:
-    if st.button("YTD"):
-        num_period = "ytd"
-
+    if st.button("YTD"): num_period = "ytd"
 with col5:
-    if st.button("1Y"):
-        num_period = "1y"
-
+    if st.button("1Y"): num_period = "1y"
 with col6:
-    if st.button("5Y"):
-        num_period = "5y"
-
+    if st.button("5Y"): num_period = "5y"
 with col7:
-    if st.button("MAX"):
-        num_period = "max"
+    if st.button("MAX"): num_period = "max"
 
 # ================== CHART SETTINGS ==================
 col1, col2 = st.columns([1, 1])
@@ -195,7 +201,7 @@ with col2:
     else:
         indicators = st.selectbox("Technical Indicator", ("RSI", "Moving Average", "MACD"))
 
-# ================== FETCH DATA ONCE ✅ ==================
+# ================== FETCH DATA ==================
 chart_data = get_history(ticker)
 
 if isinstance(chart_data.columns, pd.MultiIndex):
@@ -203,31 +209,16 @@ if isinstance(chart_data.columns, pd.MultiIndex):
 
 # ================== CHART ==================
 if chart_type == "Candle":
-    st.plotly_chart(
-        candlestick(chart_data, num_period),
-        use_container_width=True
-    )
+    st.plotly_chart(candlestick(chart_data, num_period), use_container_width=True)
 else:
-    st.plotly_chart(
-        close_chart(chart_data, num_period),
-        use_container_width=True
-    )
+    st.plotly_chart(close_chart(chart_data, num_period), use_container_width=True)
 
 # ================== INDICATORS ==================
 if indicators == "RSI":
-    st.plotly_chart(
-        RSI(chart_data, num_period),
-        use_container_width=True
-    )
+    st.plotly_chart(RSI(chart_data, num_period), use_container_width=True)
 
 elif indicators == "MACD":
-    st.plotly_chart(
-        MACD(chart_data, num_period),
-        use_container_width=True
-    )
+    st.plotly_chart(MACD(chart_data, num_period), use_container_width=True)
 
 elif indicators == "Moving Average":
-    st.plotly_chart(
-        Moving_average(chart_data, num_period),
-        use_container_width=True
-    )
+    st.plotly_chart(Moving_average(chart_data, num_period), use_container_width=True)
