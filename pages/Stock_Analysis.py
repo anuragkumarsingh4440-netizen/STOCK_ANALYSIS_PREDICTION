@@ -1,13 +1,6 @@
 import streamlit as st
 import yfinance as yf
-
-@st.cache_data(ttl=600)
-def get_stock_info(ticker):
-    stock = yf.Ticker(ticker)
-    return stock.info
-
 import pandas as pd
-import yfinance as yf
 import datetime as dt
 
 from pages.utils.plotly_figure import (
@@ -19,513 +12,140 @@ from pages.utils.plotly_figure import (
     close_chart
 )
 
-
+# ✅ PAGE CONFIG
 st.set_page_config(
     page_title="AIML Stock Analysis",
     page_icon="📈",
     layout="wide",
 )
 
+# ✅ CACHE FUNCTIONS (VERY IMPORTANT)
+@st.cache_data(ttl=600)
+def get_stock_info(ticker):
+    try:
+        stock = yf.Ticker(ticker)
+        return stock.fast_info  # ✅ safe version
+    except Exception:
+        return {}
 
-st.markdown(
-    """
-    <style>
+@st.cache_data(ttl=600)
+def get_stock_history(ticker, period):
+    try:
+        stock = yf.Ticker(ticker)
+        return stock.history(period=period)
+    except Exception:
+        return pd.DataFrame()
 
-    .main {
-        background-color: #f5f9ff;
-    }
+@st.cache_data(ttl=600)
+def download_data(ticker, start, end):
+    try:
+        return yf.download(ticker, start=start, end=end)
+    except Exception:
+        return pd.DataFrame()
 
-    .title-style {
-        font-size: 52px;
-        font-weight: 800;
-        color: #0b1f33;
-        text-align: center;
-        margin-bottom: 10px;
-    }
+# ✅ UI DESIGN
+st.markdown("<h1 style='text-align:center;'>AIML Stock Analysis 📈</h1>", unsafe_allow_html=True)
 
-    .sub-style {
-        font-size: 20px;
-        color: #4b6584;
-        text-align: center;
-        margin-bottom: 35px;
-    }
-
-    .stMetric {
-        background-color: white;
-        padding: 15px;
-        border-radius: 15px;
-        box-shadow: 0px 4px 18px rgba(0,0,0,0.08);
-    }
-
-    div[data-baseweb="select"] {
-        background-color: white;
-        border-radius: 10px;
-    }
-
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-
-
-st.markdown(
-    """
-    <div class="title-style">
-        AIML Based Stock Prices Analysis & Prediction 📈
-    </div>
-    """,
-    unsafe_allow_html=True
-)
-
-st.markdown(
-    """
-    <div class="sub-style">
-        Analyze stock performance, financial indicators,
-        technical trends, and AI-powered market insights.
-    </div>
-    """,
-    unsafe_allow_html=True
-)
-
-
-# Inputs
+# ✅ INPUTS
 col1, col2, col3 = st.columns(3)
 
 today = dt.date.today()
 
 with col1:
-
-    ticker = st.text_input(
-        "Stock Ticker",
-        "TSLA"
-    )
+    ticker = st.text_input("Stock Ticker", "TSLA")
 
 with col2:
-
     start_date = st.date_input(
-        "Choose Start Date",
-        dt.date(
-            today.year - 1,
-            today.month,
-            today.day
-        ),
+        "Start Date",
+        dt.date(today.year - 1, today.month, today.day),
     )
 
 with col3:
-
-    end_date = st.date_input(
-        "Choose End Date",
-        today
-    )
-
+    end_date = st.date_input("End Date", today)
 
 st.markdown("---")
 
+# ✅ STOCK INFO
+info = get_stock_info(ticker)
 
-# Fetch stock info
-stock = yf.Ticker(ticker)
+st.subheader(f"{ticker} Overview")
 
-info = stock.info if stock.info else {}
+st.write("Basic Info (fast API):")
+st.write(info)
 
+# ✅ DATA DOWNLOAD
+data = download_data(ticker, start_date, end_date)
 
-st.subheader(f"{ticker} Company Overview")
-
-
-st.write(
-    info.get(
-        "longBusinessSummary",
-        "No description available"
-    )
-)
-
-
-# Company Metrics
-col1, col2, col3 = st.columns(3)
-
-with col1:
-
-    st.metric(
-        "Sector",
-        info.get("sector", "N/A")
-    )
-
-with col2:
-
-    st.metric(
-        "Employees",
-        info.get("fullTimeEmployees", "N/A")
-    )
-
-with col3:
-
-    st.metric(
-        "Website",
-        info.get("website", "N/A")
-    )
-
-
-st.markdown("## Financial Information")
-
-
-# Financial tables
-col1, col2 = st.columns(2)
-
-with col1:
-
-    df1 = pd.DataFrame(
-        index=[
-            "Market Cap",
-            "Beta",
-            "EPS",
-            "PE Ratio"
-        ]
-    )
-
-    df1["Value"] = [
-
-        info.get("marketCap"),
-
-        info.get("beta"),
-
-        info.get("trailingEps"),
-
-        info.get("trailingPE"),
-    ]
-
-    st.plotly_chart(
-        plotly_table(df1),
-        use_container_width=True
-    )
-
-with col2:
-
-    df2 = pd.DataFrame(
-        index=[
-            "Quick Ratio",
-            "Revenue per Share",
-            "Profit Margins",
-            "Debt to Equity",
-            "Return on Equity",
-        ]
-    )
-
-    df2["Value"] = [
-
-        info.get("quickRatio"),
-
-        info.get("revenuePerShare"),
-
-        info.get("profitMargins"),
-
-        info.get("debtToEquity"),
-
-        info.get("returnOnEquity"),
-    ]
-
-    st.plotly_chart(
-        plotly_table(df2),
-        use_container_width=True
-    )
-
-
-st.markdown("## Historical Market Data")
-
-
-# Download stock data
-data = yf.download(
-    ticker,
-    start=start_date,
-    end=end_date
-)
-
-
-# Fix MultiIndex issue
 if isinstance(data.columns, pd.MultiIndex):
-
     data.columns = data.columns.get_level_values(0)
 
-
-# Metrics
+# ✅ METRICS
 col1, col2, col3 = st.columns(3)
 
 if not data.empty and len(data) >= 2:
 
-    latest_close = float(
-        data["Close"].iloc[-1]
-    )
+    latest = float(data["Close"].iloc[-1])
+    prev = float(data["Close"].iloc[-2])
 
-    prev_close = float(
-        data["Close"].iloc[-2]
-    )
-
-    daily_change = latest_close - prev_close
-
-    highest_price = float(
-        data['High'].max()
-    )
-
-    lowest_price = float(
-        data['Low'].min()
-    )
-
-    col1.metric(
-        "Latest Close Price",
-        f"{latest_close:.2f}",
-        f"{daily_change:.2f}"
-    )
-
-    col2.metric(
-        "Highest Price",
-        f"{highest_price:.2f}"
-    )
-
-    col3.metric(
-        "Lowest Price",
-        f"{lowest_price:.2f}"
-    )
+    col1.metric("Latest Price", f"{latest:.2f}", f"{latest-prev:.2f}")
+    col2.metric("High", f"{data['High'].max():.2f}")
+    col3.metric("Low", f"{data['Low'].min():.2f}")
 
 else:
+    st.warning("No sufficient data")
 
-    st.warning(
-        "Not enough data to calculate metrics"
-    )
+# ✅ TABLE
+st.write("### Last 10 Days")
 
+last_10 = data.tail(10).sort_index(ascending=False)
 
-# Historical table
-last_10_df = data.tail(10) \
-                 .sort_index(ascending=False) \
-                 .round(3)
+st.plotly_chart(plotly_table(last_10), use_container_width=True)
 
-fig_df = plotly_table(
-    last_10_df
-)
-
-st.write("### Historical Data (Last 10 Days)")
-
-st.plotly_chart(
-    fig_df,
-    use_container_width=True
-)
-
-
+# ✅ TECHNICAL SECTION
 st.markdown("## Technical Analysis")
 
-
-# Time period buttons
-(
-    col1,
-    col2,
-    col3,
-    col4,
-    col5,
-    col6,
-    col7
-) = st.columns(7)
-
-num_period = "1mo"
+col1, col2 = st.columns(2)
 
 with col1:
-
-    if st.button("5D"):
-
-        num_period = "5d"
+    chart_type = st.selectbox("Chart Type", ["Candle", "Line"])
 
 with col2:
+    indicators = st.selectbox("Indicator", ["RSI", "MACD", "Moving Average"])
 
-    if st.button("1M"):
+# ✅ PERIOD BUTTONS
+col_btn = st.columns(5)
 
-        num_period = "1mo"
+period = "1mo"
 
-with col3:
+if col_btn[0].button("1M"):
+    period = "1mo"
+if col_btn[1].button("6M"):
+    period = "6mo"
+if col_btn[2].button("1Y"):
+    period = "1y"
+if col_btn[3].button("5Y"):
+    period = "5y"
+if col_btn[4].button("MAX"):
+    period = "max"
 
-    if st.button("6M"):
+# ✅ FETCH DATA ONCE
+chart_data = get_stock_history(ticker, "max")
 
-        num_period = "6mo"
+if isinstance(chart_data.columns, pd.MultiIndex):
+    chart_data.columns = chart_data.columns.get_level_values(0)
 
-with col4:
-
-    if st.button("YTD"):
-
-        num_period = "ytd"
-
-with col5:
-
-    if st.button("1Y"):
-
-        num_period = "1y"
-
-with col6:
-
-    if st.button("5Y"):
-
-        num_period = "5y"
-
-with col7:
-
-    if st.button("MAX"):
-
-        num_period = "max"
-
-
-# Chart selection
-col1, col2 = st.columns([1, 1])
-
-with col1:
-
-    chart_type = st.selectbox(
-        "Chart Type",
-        ("Candle", "Line")
-    )
-
-with col2:
-
-    if chart_type == "Candle":
-
-        indicators = st.selectbox(
-            "Technical Indicator",
-            ("RSI", "MACD")
-        )
-
-    else:
-
-        indicators = st.selectbox(
-            "Technical Indicator",
-            ("RSI", "Moving Average", "MACD")
-        )
-
-
-# Historical stock data
-ticker_data = yf.Ticker(ticker)
-
-new_df = ticker_data.history(
-    period="max"
-)
-
-if isinstance(new_df.columns, pd.MultiIndex):
-
-    new_df.columns = new_df.columns.get_level_values(0)
-
-
-data1 = ticker_data.history(
-    period="max"
-)
-
-if isinstance(data1.columns, pd.MultiIndex):
-
-    data1.columns = data1.columns.get_level_values(0)
-
-
-# Chart rendering
-if num_period == "1mo":
-
-    if chart_type == "Candle" and indicators == "RSI":
-
-        st.plotly_chart(
-            candlestick(data1, "1y"),
-            use_container_width=True
-        )
-
-        st.plotly_chart(
-            RSI(data1, "1y"),
-            use_container_width=True
-        )
-
-    if chart_type == "Candle" and indicators == "MACD":
-
-        st.plotly_chart(
-            candlestick(data1, "1y"),
-            use_container_width=True
-        )
-
-        st.plotly_chart(
-            MACD(data1, "1y"),
-            use_container_width=True
-        )
-
-    if chart_type == "Line" and indicators == "RSI":
-
-        st.plotly_chart(
-            close_chart(data1, "1y"),
-            use_container_width=True
-        )
-
-        st.plotly_chart(
-            RSI(data1, "1y"),
-            use_container_width=True
-        )
-
-    if chart_type == "Line" and indicators == "Moving Average":
-
-        st.plotly_chart(
-            Moving_average(data1, "1y"),
-            use_container_width=True
-        )
-
-    if chart_type == "Line" and indicators == "MACD":
-
-        st.plotly_chart(
-            close_chart(data1, "1y"),
-            use_container_width=True
-        )
-
-        st.plotly_chart(
-            MACD(data1, "1y"),
-            use_container_width=True
-        )
-
+# ✅ PLOTTING
+if chart_type == "Candle":
+    st.plotly_chart(candlestick(chart_data, period), use_container_width=True)
 else:
+    st.plotly_chart(close_chart(chart_data, period), use_container_width=True)
 
-    if chart_type == "Candle" and indicators == "RSI":
+# ✅ INDICATORS
+if indicators == "RSI":
+    st.plotly_chart(RSI(chart_data, period), use_container_width=True)
 
-        st.plotly_chart(
-            candlestick(new_df, num_period),
-            use_container_width=True
-        )
+elif indicators == "MACD":
+    st.plotly_chart(MACD(chart_data, period), use_container_width=True)
 
-        st.plotly_chart(
-            RSI(new_df, num_period),
-            use_container_width=True
-        )
-
-    if chart_type == "Candle" and indicators == "MACD":
-
-        st.plotly_chart(
-            candlestick(new_df, num_period),
-            use_container_width=True
-        )
-
-        st.plotly_chart(
-            MACD(new_df, num_period),
-            use_container_width=True
-        )
-
-    if chart_type == "Line" and indicators == "RSI":
-
-        st.plotly_chart(
-            close_chart(new_df, num_period),
-            use_container_width=True
-        )
-
-        st.plotly_chart(
-            RSI(new_df, num_period),
-            use_container_width=True
-        )
-
-    if chart_type == "Line" and indicators == "Moving Average":
-
-        st.plotly_chart(
-            Moving_average(new_df, num_period),
-            use_container_width=True
-        )
-
-    if chart_type == "Line" and indicators == "MACD":
-
-        st.plotly_chart(
-            close_chart(new_df, num_period),
-            use_container_width=True
-        )
-
-        st.plotly_chart(
-            MACD(new_df, num_period),
-            use_container_width=True
-        )
+elif indicators == "Moving Average":
+    st.plotly_chart(Moving_average(chart_data, period), use_container_width=True)
