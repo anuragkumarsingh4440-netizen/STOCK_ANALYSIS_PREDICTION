@@ -1,4 +1,11 @@
 import streamlit as st
+import yfinance as yf
+
+@st.cache_data(ttl=600)
+def get_stock_info(ticker):
+    stock = yf.Ticker(ticker)
+    return stock.info
+
 import pandas as pd
 import yfinance as yf
 import datetime as dt
