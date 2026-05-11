@@ -3,7 +3,6 @@ import yfinance as yf
 import pandas as pd
 import google.generativeai as genai
 import re
-import datetime as dt
 
 from pages.utils.model_train import (
     get_data,
@@ -27,11 +26,11 @@ st.set_page_config(
     layout="wide",
 )
 
-# ================== GEMINI SETUP ==================
+# ================== GEMINI ==================
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 model = genai.GenerativeModel("gemini-2.0-flash")
 
-# ================== GEMINI FUNCTIONS ==================
+# ================== FUNCTIONS ==================
 @st.cache_data(ttl=3600)
 def get_ticker_from_company(user_input):
     try:
@@ -39,31 +38,35 @@ def get_ticker_from_company(user_input):
         Convert company name to Yahoo Finance ticker.
 
         Rules:
-        - Output ONLY ticker
-        - Tesla -> TSLA
-        - Apple -> AAPL
-        - Google -> GOOGL
-        - Indian stocks -> .NS
+        Only ticker output
+
+        Examples:
+        Tesla -> TSLA
+        Apple -> AAPL
+        Google -> GOOGL
+        Reliance -> RELIANCE.NS
 
         Company: {user_input}
         """
-
         response = model.generate_content(prompt)
-        ticker = response.text.strip().upper()
-        ticker = re.sub(r"[^A-Z\.]", "", ticker)
 
-        return ticker
+        if hasattr(response, "text") and response.text:
+            ticker = response.text.strip().upper()
+        else:
+            ticker = response.candidates[0].content.parts[0].text.strip()
+
+        return re.sub(r"[^A-Z\.]", "", ticker)
 
     except:
         return user_input.upper()
 
-# ✅ fallback mapping (very important)
+
 def fallback_ticker(name):
     mapping = {
         "TESLA": "TSLA",
+        "APPLE": "AAPL",
         "GOOGLE": "GOOGL",
         "ALPHABET": "GOOGL",
-        "APPLE": "AAPL",
         "AMAZON": "AMZN",
         "MICROSOFT": "MSFT",
         "RELIANCE": "RELIANCE.NS",
@@ -72,106 +75,74 @@ def fallback_ticker(name):
     }
     return mapping.get(name.upper(), name.upper())
 
-# ✅ AI Investment Tip
-@st.cache_data(ttl=300)
-def get_ai_investment_tip(ticker):
-    try:
-        prompt = f"""
-        You are a stock advisor.
 
-        Give exactly 2 short investment tips for {ticker}.
+# ✅ ✅ UPDATED AI FUNCTION (FORECAST BASED)
+@st.cache_data(ttl=300)
+def get_ai_investment_tip(ticker, forecast_df):
+    try:
+
+        # ✅ convert forecast to text
+        table_text = forecast_df[['Close']].tail(10).to_string()
+
+        prompt = f"""
+        You are a stock expert.
+
+        Analyze this predicted stock price data:
+
+        {table_text}
+
+        Give 2 short investment tips.
 
         Rules:
         - Only 2 lines
-        - Simple language
         - No explanation
+        - Simple language
+        - Based on trend (rising/falling)
         """
 
         response = model.generate_content(prompt)
-        return response.text.strip()
 
-    except:
-        return "AI insight not available."
+        if hasattr(response, "text") and response.text:
+            return response.text.strip()
+        else:
+            return response.candidates[0].content.parts[0].text.strip()
 
-# ================== STOCK INFO ==================
-@st.cache_data(ttl=600)
-def get_stock_info(ticker):
-    try:
-        return dict(yf.Ticker(ticker).fast_info)
-    except:
-        return {}
+    except Exception as e:
+        return f"AI Error: {e}"
+
 
 # ================== UI ==================
 st.markdown("""
 <style>
 .main {background-color: #f5f9ff;}
-.title-style {
-    font-size: 48px;
-    font-weight: 800;
-    text-align: center;
-    color: #0b1f33;
-}
-.sub-style {
-    font-size: 20px;
-    text-align: center;
-    color: #4b6584;
-}
+.title-style {font-size: 48px; font-weight: 800; text-align: center;}
+.sub-style {font-size: 20px; text-align: center;}
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="title-style">AI Stock Prediction Dashboard 📈</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-style">Gemini + ARIMA Forecasting + AI Insights</div>', unsafe_allow_html=True)
+st.markdown('<div class="title-style">AI Stock Prediction 📈</div>', unsafe_allow_html=True)
 
 # ================== INPUT ==================
-col1, col2, col3 = st.columns(3)
+company_name = st.text_input("Enter Company Name", "Tesla")
 
-with col1:
-    company_name = st.text_input("Enter Company Name", "Tesla")
+ticker = fallback_ticker(get_ticker_from_company(company_name))
 
-# ✅ AI → ticker
-ticker_ai = get_ticker_from_company(company_name)
-ticker = fallback_ticker(ticker_ai)
-
-st.success(f"Detected Ticker: {ticker}")
-
-st.subheader(f"Predicting Next 30 Days for: {ticker}")
+st.success(f"Ticker: {ticker}")
 
 # ================== DATA ==================
-try:
-    close_price = get_data(ticker)
+close_price = get_data(ticker)
 
-    if close_price is None or len(close_price) == 0:
-        st.error("No data found. Try another company.")
-        st.stop()
-
-except:
-    st.error("Error fetching data")
+if close_price is None or len(close_price) == 0:
+    st.error("No data found")
     st.stop()
 
 # ================== MODEL ==================
 rolling_price = get_rolling_mean(close_price)
-
 differencing_order = get_differencing_order(rolling_price)
-
 scaled_data, scaler = scaling(rolling_price)
 
 rmse = evaluate_model(scaled_data, differencing_order)
-
-col1, col2 = st.columns(2)
-
-with col1:
-    st.metric("Model RMSE", rmse)
-
-with col2:
-    st.metric("Prediction Horizon", "30 Days")
-
-# ================== AI BUTTON ==================
-st.markdown("## 🤖 AI Investment Insight")
-
-if st.button("🔮 AI Preview"):
-    with st.spinner("Generating AI insight..."):
-        tip = get_ai_investment_tip(ticker)
-    st.info(f"💡 {tip}")
+st.metric("RMSE", rmse)
 
 # ================== FORECAST ==================
 forecast = get_forecast(scaled_data, differencing_order)
@@ -184,9 +155,7 @@ forecast['Close'] = inverse_scaling(scaler, forecast['Close'])
 
 # ================== TABLE ==================
 st.markdown("## Forecast Data")
-
-fig = plotly_table(forecast.round(3))
-st.plotly_chart(fig, width="stretch")
+st.plotly_chart(plotly_table(forecast), width="stretch")
 
 # ================== VISUAL ==================
 rolling_price = rolling_price.copy()
@@ -204,10 +173,17 @@ forecast.columns = ['Date','Close']
 combined = pd.concat([rolling_price, forecast], ignore_index=True)
 combined = combined.set_index('Date')
 
-# ================== FINAL CHART ==================
-st.markdown("## Historical vs Forecast")
-
 st.plotly_chart(
     Moving_average_forecast(combined.iloc[150:]),
     width="stretch"
 )
+
+# ✅ ✅ ✅ BUTTON AT END
+st.markdown("## 🤖 AI Investment Insight")
+
+if st.button("🔮 AI Preview"):
+    with st.spinner("Analyzing forecast..."):
+        tip = get_ai_investment_tip(ticker, forecast)
+
+    st.info(f"💡 {tip}")
+``
