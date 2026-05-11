@@ -30,34 +30,25 @@ st.set_page_config(
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 model = genai.GenerativeModel("gemini-2.0-flash")
 
-# ================== FUNCTIONS ==================
+# ================== GEMINI TICKER ==================
 @st.cache_data(ttl=3600)
 def get_ticker_from_company(user_input):
     try:
-        prompt = f"""
-        Convert company name to Yahoo Finance ticker.
+        prompt = f"Convert this company name into stock ticker only: {user_input}"
 
-        Rules:
-        Only ticker output
-
-        Examples:
-        Tesla -> TSLA
-        Apple -> AAPL
-        Google -> GOOGL
-        Reliance -> RELIANCE.NS
-
-        Company: {user_input}
-        """
         response = model.generate_content(prompt)
 
         if hasattr(response, "text") and response.text:
-            ticker = response.text.strip().upper()
+            ticker = response.text
         else:
-            ticker = response.candidates[0].content.parts[0].text.strip()
+            ticker = response.candidates[0].content.parts[0].text
 
-        return re.sub(r"[^A-Z\.]", "", ticker)
+        ticker = ticker.strip().upper()
+        ticker = re.sub(r"[^A-Z.]", "", ticker)
 
-    except:
+        return ticker
+
+    except Exception:
         return user_input.upper()
 
 
@@ -75,30 +66,19 @@ def fallback_ticker(name):
     }
     return mapping.get(name.upper(), name.upper())
 
-
-# ✅ ✅ UPDATED AI FUNCTION (FORECAST BASED)
+# ================== AI TIP FROM FORECAST ==================
 @st.cache_data(ttl=300)
 def get_ai_investment_tip(ticker, forecast_df):
     try:
-
-        # ✅ convert forecast to text
-        table_text = forecast_df[['Close']].tail(10).to_string()
+        table_text = forecast_df.tail(10).to_string()
 
         prompt = f"""
-        You are a stock expert.
+Analyze this predicted stock data for {ticker}:
 
-        Analyze this predicted stock price data:
+{table_text}
 
-        {table_text}
-
-        Give 2 short investment tips.
-
-        Rules:
-        - Only 2 lines
-        - No explanation
-        - Simple language
-        - Based on trend (rising/falling)
-        """
+Give ONLY 2 short investment tips based on the trend.
+"""
 
         response = model.generate_content(prompt)
 
@@ -110,19 +90,9 @@ def get_ai_investment_tip(ticker, forecast_df):
     except Exception as e:
         return f"AI Error: {e}"
 
-
 # ================== UI ==================
-st.markdown("""
-<style>
-.main {background-color: #f5f9ff;}
-.title-style {font-size: 48px; font-weight: 800; text-align: center;}
-.sub-style {font-size: 20px; text-align: center;}
-</style>
-""", unsafe_allow_html=True)
+st.title("AI Stock Prediction 📈")
 
-st.markdown('<div class="title-style">AI Stock Prediction 📈</div>', unsafe_allow_html=True)
-
-# ================== INPUT ==================
 company_name = st.text_input("Enter Company Name", "Tesla")
 
 ticker = fallback_ticker(get_ticker_from_company(company_name))
@@ -151,15 +121,15 @@ if forecast.empty:
     st.error("Forecast failed")
     st.stop()
 
-forecast['Close'] = inverse_scaling(scaler, forecast['Close'])
+forecast["Close"] = inverse_scaling(scaler, forecast["Close"])
 
 # ================== TABLE ==================
-st.markdown("## Forecast Data")
+st.subheader("Forecast Data")
 st.plotly_chart(plotly_table(forecast), width="stretch")
 
 # ================== VISUAL ==================
 rolling_price = rolling_price.copy()
-rolling_price.columns = ['Close']
+rolling_price.columns = ["Close"]
 rolling_price.index = pd.to_datetime(rolling_price.index)
 
 forecast.index = pd.to_datetime(forecast.index)
@@ -167,23 +137,22 @@ forecast.index = pd.to_datetime(forecast.index)
 rolling_price = rolling_price.reset_index()
 forecast = forecast.reset_index()
 
-rolling_price.columns = ['Date','Close']
-forecast.columns = ['Date','Close']
+rolling_price.columns = ["Date", "Close"]
+forecast.columns = ["Date", "Close"]
 
 combined = pd.concat([rolling_price, forecast], ignore_index=True)
-combined = combined.set_index('Date')
+combined = combined.set_index("Date")
 
 st.plotly_chart(
     Moving_average_forecast(combined.iloc[150:]),
     width="stretch"
 )
 
-# ✅ ✅ ✅ BUTTON AT END
+# ================== AI BUTTON AT END ✅ ==================
 st.markdown("## 🤖 AI Investment Insight")
 
 if st.button("🔮 AI Preview"):
     with st.spinner("Analyzing forecast..."):
         tip = get_ai_investment_tip(ticker, forecast)
 
-    st.info(f"💡 {tip}")
-``
+    st.info(tip)
