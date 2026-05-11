@@ -1,4 +1,10 @@
 import streamlit as st
+import yfinance as yf
+
+@st.cache_data(ttl=600)
+def get_stock_info(ticker):
+    stock = yf.Ticker(ticker)
+    return stock.info
 
 from pages.utils.model_train import (
     get_data,
